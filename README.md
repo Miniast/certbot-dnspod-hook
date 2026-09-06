@@ -6,7 +6,9 @@ Small, standalone Certbot DNS-01 hooks for Tencent Cloud DNSPod.
 个人维护的精简工具，通过 GitHub Releases 分发；不提供托管服务或可用性承诺。
 
 **0.4.0 / Alpha。** 工具自身的程序、凭证、备份和状态集中在单个安装目录。
-Alpha 表示验证范围有限；版本号按功能变更递增。此前正式续签结果见 [0.3.0 验证记录](docs/VALIDATION.md)。
+Alpha 表示验证范围有限；版本号按功能变更递增。
+[0.4.0 验证记录](docs/VALIDATION-0.4.0.md)包含真实 staging 和本机实际卸载；
+此前正式续签结果见 [0.3.0 验证记录](docs/VALIDATION.md)。
 首次使用会由 Certbot 执行 Let's Encrypt staging 测试，成功后才保存接入选项。
 
 ## 安装与接入
