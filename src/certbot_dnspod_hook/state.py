@@ -12,8 +12,9 @@ from .config import HookError
 
 
 class StateStore:
-    def __init__(self, directory: Path):
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    def __init__(self, directory: Path, *, create=True):
+        if create:
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         info = directory.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.geteuid():
             raise HookError("State directory must be owned by the current user with mode 700")

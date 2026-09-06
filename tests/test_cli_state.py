@@ -113,3 +113,14 @@ def test_state_symlink_rejected(config, tmp_path):
     store.path(key).symlink_to(target)
     with pytest.raises(OSError):
         store.read(key)
+
+
+def test_status_does_not_create_a_directory_or_lock(tmp_path, capsys):
+    config = write_config(tmp_path)
+    directory = tmp_path / "state"
+    assert cli.main(["--config", str(config), "status"]) == 0
+    assert json.loads(capsys.readouterr().out) == []
+    assert not directory.exists()
+    directory.mkdir(mode=0o700)
+    assert cli.main(["--config", str(config), "status"]) == 0
+    assert list(directory.iterdir()) == []

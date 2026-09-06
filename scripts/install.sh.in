@@ -3,10 +3,11 @@
 set -eu
 main() {
     command -v python3 >/dev/null 2>&1 || { echo 'Python 3.11+ is required.' >&2; exit 1; }
-    python3 - "$@" <<'PY'
+    python3 -B - "$@" <<'PY'
 import argparse
 import fcntl
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -94,19 +95,37 @@ def install():
                     raise RuntimeError('Release is missing its pip bootstrap wheel')
                 env = {k: v for k, v in os.environ.items() if k not in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV')}
                 env['PYTHONPATH'] = str(bootstrap[0])
-                subprocess.run([python, '-m', 'pip', '--isolated', 'install', '--no-index', '--no-compile',
+                env['PYTHONDONTWRITEBYTECODE'] = '1'
+                subprocess.run([python, '-m', 'pip', '--isolated', 'install', '--no-index', '--no-compile', '--no-cache-dir',
                                 '--require-hashes', '--find-links', str(work / 'wheels'),
                                 '-r', str(work / 'requirements.txt')], env=env, check=True)
                 env.pop('PYTHONPATH')
                 subprocess.run([python, '-m', 'pip', 'check'], env=env, check=True)
+                entry = slot / 'bin/certbot-dnspod-hook'
+                entry.write_text(entry.read_text().replace('#!' + python + '\n', '#!' + python + ' -B\n', 1))
                 actual = subprocess.check_output([str(slot / 'bin/certbot-dnspod-hook'), '--version'], env=env, text=True).strip()
                 if actual != VERSION:
                     raise RuntimeError('Installed version does not match the release')
                 if not os.path.lexists(launcher):
                     launcher.symlink_to(target)
+                receipt = prefix / 'install.json'
+                owned = json.loads(receipt.read_text()) if receipt.exists() else {'version': 1, 'launcher': str(launcher), 'versions': []}
+                if current.exists() and current.resolve().name not in owned['versions']:
+                    owned['versions'].append(current.resolve().name)
+                owned['versions'].append(slot.name)
+                metadata = prefix / ('.manifest-' + uuid.uuid4().hex)
+                try:
+                    metadata.write_text(json.dumps(owned, indent=2) + '\n')
+                    metadata.chmod(0o600)
+                    os.replace(metadata, receipt)
+                finally:
+                    metadata.unlink(missing_ok=True)
                 switch = prefix / ('.current-' + uuid.uuid4().hex)
-                switch.symlink_to(slot)
-                os.replace(switch, current)
+                try:
+                    switch.symlink_to(slot)
+                    os.replace(switch, current)
+                finally:
+                    switch.unlink(missing_ok=True)
                 activated = True
                 print('Installed ' + VERSION + ': ' + str(launcher), flush=True)
                 print('Next: sudo certbot-dnspod-hook setup --cert-name DOMAIN --zone ZONE --credentials-file FILE --renew-now')

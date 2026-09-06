@@ -53,6 +53,35 @@ def test_install_from_http_and_failed_update_preserves_working_install(tmp_path)
         assert "checksum mismatch" in failed.stderr
         assert (prefix / "current").readlink() == before
         assert subprocess.check_output([str(launcher), "--version"], text=True).strip() == version
+        # Execute removal from the installed interpreter, including deleting its own venv.
+        renewal_root = tmp_path / "letsencrypt/renewal"
+        renewal_root.mkdir(parents=True)
+        program = """from pathlib import Path
+from types import SimpleNamespace
+from certbot_dnspod_hook.management import remove_installation
+import sys
+paths = [Path(value) for value in sys.argv[1:]]
+raise SystemExit(remove_installation(SimpleNamespace(detach=False, dry_run=False), *paths))
+"""
+        removed = subprocess.run(
+            [
+                str(prefix / "current/bin/python"),
+                "-B",
+                "-c",
+                program,
+                str(tmp_path / "unused-config"),
+                str(tmp_path / "unused-state"),
+                str(renewal_root),
+                str(prefix),
+                str(launcher),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert removed.returncode == 0, removed.stdout + removed.stderr
+        assert not prefix.exists() and not launcher.is_symlink()
+        assert not (renewal_root.parent / ".certbot.lock").exists()
     finally:
         server.shutdown()
         server.server_close()

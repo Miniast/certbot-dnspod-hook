@@ -1,6 +1,6 @@
 # DNSPod 接口清单与请求／响应格式
 
-对应当前 `certbot-dnspod-hook` 0.2.1 实现，核对日期：2026-09-06。
+对应当前 `certbot-dnspod-hook` 0.3.0 实现，核对日期：2026-09-06。
 API 适配代码见 [provider.py](../src/certbot_dnspod_hook/provider.py)，
 调用流程见 [core.py](../src/certbot_dnspod_hook/core.py)。
 

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from .config import HookError, load_config
 from .core import Hook, challenge
+from .management import add_arguments as add_uninstall_arguments
+from .management import uninstall
 from .propagation import wait_for_txt
 from .provider import DNSPod
 from .setup import add_arguments, setup
@@ -28,26 +30,36 @@ def main(argv=None) -> int:
     sub.add_parser("auth", help="Create TXT, wait for DNS and print a state ID")
     cleanup = sub.add_parser("cleanup", help="Remove only the TXT owned by this challenge")
     cleanup.add_argument("--state-id", help="Recover a saved challenge after Certbot has stopped")
+    add_uninstall_arguments(
+        sub.add_parser("uninstall", help="Remove owned files; preserve certificates")
+    )
     add_arguments(sub.add_parser("setup", help="Connect an existing certificate and test renewal"))
     sub.add_parser("status", help="List local pending states without contacting DNSPod")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
+        if args.command == "uninstall":
+            return uninstall(args)
         if args.command == "setup":
             return setup(args)
         config = load_config(args.config)
+        if args.command == "status":
+            states = []
+            if config.state_dir.exists():
+                store = StateStore(config.state_dir, create=False)
+                for path in sorted(config.state_dir.glob("*.json")):
+                    data = store.read(path.stem)
+                    if data is not None:
+                        states.append(
+                            {
+                                "state_id": path.stem,
+                                "domain": data.get("domain"),
+                                "record_id": data.get("record_id"),
+                            }
+                        )
+            print(json.dumps(states, indent=2))
+            return 0
         with StateStore(config.state_dir) as store:
-            if args.command == "status":
-                states = [
-                    {
-                        "state_id": path.stem,
-                        "domain": store.read(path.stem).get("domain"),
-                        "record_id": store.read(path.stem).get("record_id"),
-                    }
-                    for path in sorted(config.state_dir.glob("*.json"))
-                ]
-                print(json.dumps(states, indent=2))
-                return 0
             if args.command == "auth":
                 domain, value, _ = environment_challenge()
                 hook = Hook(config, DNSPod(config), store, wait_for_txt)

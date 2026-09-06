@@ -12,3 +12,5 @@ credentials*
 state/
 *.pem
 *.key
+*.renewal-backup
+managed.json

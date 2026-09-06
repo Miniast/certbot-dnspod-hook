@@ -5,7 +5,7 @@ Small, standalone Certbot DNS-01 hooks for Tencent Cloud DNSPod.
 为 Certbot 自动创建、验证和清理 DNSPod TXT 记录，支持 Snap 版 Certbot。
 个人维护的精简工具，通过 GitHub Releases 分发；不提供托管服务或可用性承诺。
 
-**0.2.1 / Alpha。** 四个 DNSPod API 和权威 DNS 检查已完成真实验证。
+**0.3.0 / Alpha。** 四个 DNSPod API 和权威 DNS 检查已完成真实验证。
 首次使用会由 Certbot 执行 Let's Encrypt staging 测试，成功后才保存接入选项。
 
 ## 安装与接入
@@ -20,8 +20,8 @@ Small, standalone Certbot DNS-01 hooks for Tencent Cloud DNSPod.
 先用有仓库访问权的 GitHub 账号完成 `gh auth login`，下载固定版本：
 
 ```sh
-gh release download v0.2.1 --repo Miniast/certbot-dnspod-hook --pattern install.sh --pattern '*-bundle.tar.gz' --dir /tmp/certbot-dnspod-hook-0.2.1
-sudo sh /tmp/certbot-dnspod-hook-0.2.1/install.sh --bundle /tmp/certbot-dnspod-hook-0.2.1/certbot-dnspod-hook-0.2.1-bundle.tar.gz
+gh release download v0.3.0 --repo Miniast/certbot-dnspod-hook --pattern install.sh --pattern '*-bundle.tar.gz' --dir /tmp/certbot-dnspod-hook-0.3.0
+sudo sh /tmp/certbot-dnspod-hook-0.3.0/install.sh --bundle /tmp/certbot-dnspod-hook-0.3.0/certbot-dnspod-hook-0.3.0-bundle.tar.gz
 ```
 
 GitHub 登录仅用于下载。安装和后续续期不需要 GitHub 凭证。
@@ -32,7 +32,7 @@ GitHub 登录仅用于下载。安装和后续续期不需要 GitHub 凭证。
 仅在仓库和 Release 已公开后可使用；私有仓库请用上面的下载方式：
 
 ```sh
-curl -fsSL https://github.com/Miniast/certbot-dnspod-hook/releases/download/v0.2.1/install.sh | sudo sh
+curl -fsSL https://github.com/Miniast/certbot-dnspod-hook/releases/download/v0.3.0/install.sh | sudo sh
 ```
 
 安装位置为 `/opt/certbot-dnspod-hook/versions/<版本>-<安装编号>`，
@@ -107,9 +107,46 @@ sudo certbot-dnspod-hook --config /etc/certbot-dnspod-hook/CONFIG.toml cleanup -
 若创建请求结果不明且列表暂时找不到记录，状态和配置保留；先核对 DNSPod，再定向恢复。
 不要清空整个 `_acme-challenge`，同名 TXT 可能属于其他操作。
 
-卸载前应先给相关证书配置其他可用的续期方式，再移除命令链接和程序版本目录。
-凭证、状态、Certbot 证书与备份分别保存在 `/etc/certbot-dnspod-hook`、
-`/var/lib/certbot-dnspod-hook`、`/etc/letsencrypt`；升级不会清空这些目录。
+## 写入范围与卸载
+
+工具自己的持久写入集中在以下位置：
+
+| 位置 | 内容 |
+| --- | --- |
+| `/opt/certbot-dnspod-hook` | 独立程序环境、受管版本清单、当前版本链接和安装锁 |
+| `/usr/local/bin/certbot-dnspod-hook` | 固定命令链接 |
+| `/etc/certbot-dnspod-hook` | 凭证配置、接入前备份、文件归属清单、可选 nginx 钩子 |
+| `/var/lib/certbot-dnspod-hook` | 挑战状态和进程锁 |
+
+安装临时下载文件在 `/opt/certbot-dnspod-hook/.download-*` 内，正常结束或捕获到失败时清理。
+安装禁用 pip 缓存，系统命令入口禁用 Python 字节码写入；不修改 shell 配置、工作目录或系统 Python 包。
+升级保留登记过的旧程序环境，卸载时一并移除。
+`status` 与卸载预览不创建目录、状态文件或锁文件。
+
+Certbot 自身会更新 `/etc/letsencrypt`、工作目录和 `/var/log/letsencrypt`，
+systemd / nginx 也会产生正常系统日志；这些属于证书管理和系统服务的预期写入，卸载不会删除。
+
+先预览卸载范围：
+
+```sh
+sudo certbot-dnspod-hook uninstall --detach --dry-run
+```
+
+仅在确实准备停止使用这个工具时执行：
+
+```sh
+sudo certbot-dnspod-hook uninstall --detach
+```
+
+`--detach` 仅恢复本工具改变的续期选项，保留新签发的证书、私钥及 Certbot 的其他配置。
+如果接入前使用手动 DNS 验证，恢复后需要另一套 hooks 才能继续自动续期。
+省略 `--detach` 时，若任何证书仍引用本工具，则拒绝卸载。
+
+卸载会核对受管配置的内容哈希以及 hooks 是否仍符合接入时记录；
+有手动改动、未跟踪的引用、活动进程、待清理挑战或未知状态文件时会停止。
+完整卸载移除登记过的程序环境、命令链接、凭证、备份和空状态目录。
+配置目录里额外放入的用户文件会保留，不递归清空未知目录。
+卸载用兼容 Certbot 的临时锁排除并发续期，结束后移除该临时锁。
 
 ## 范围与工作机制
 
@@ -165,12 +202,12 @@ uv run --frozen ruff check .
 uv run --frozen ruff format --check .
 uv run --frozen pytest -q
 uv run --frozen python scripts/build_release.py --repository Miniast/certbot-dnspod-hook
-DNSPOD_TEST_RELEASE="$PWD/dist/release/0.2.1" uv run --frozen pytest -q tests/test_installer.py
+DNSPOD_TEST_RELEASE="$PWD/dist/release/0.3.0" uv run --frozen pytest -q tests/test_installer.py
 ```
 
 构建器从 `uv.lock` 选择运行时依赖和 pip 的通用 wheel，下载后校验锁定的哈希，
 再打包应用 wheel、依赖、带哈希的 requirements 和许可证。
-产物位于 `dist/release/0.2.1`：`install.sh`、`*-bundle.tar.gz`、`SHA256SUMS`、
+产物位于 `dist/release/0.3.0`：`install.sh`、`*-bundle.tar.gz`、`SHA256SUMS`、
 `requirements.txt`、`release.json`。安装器内固定 bundle 哈希，校验文件也列出安装器自身的哈希。
 这些校验用于检测内容不符；安装器本身仍需从你信任的发布来源取得。
 

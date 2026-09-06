@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 
 from .config import Config, HookError, domain_name
+from .management import register
 from .state import StateStore
 
 CONFIG_DIR = Path("/etc/certbot-dnspod-hook")
@@ -240,9 +241,21 @@ def setup(args) -> int:
             else:
                 private_write(deploy_path, NGINX_DEPLOY, 0o700)
             command += ["--deploy-hook", str(deploy_path), "--run-deploy-hooks"]
+        register(
+            CONFIG_DIR, args.cert_name, path, backup, HOOK_COMMAND, deploy_owned=args.deploy_nginx
+        )
         print("Testing and saving renewal options with Certbot staging...", flush=True)
         run(command)
         saved = renewal.read_text()
+        register(
+            CONFIG_DIR,
+            args.cert_name,
+            path,
+            backup,
+            HOOK_COMMAND,
+            final=saved,
+            deploy_owned=args.deploy_nginx,
+        )
         if (
             str(path) not in saved
             or "manual_auth_hook" not in saved
