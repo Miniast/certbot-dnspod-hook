@@ -92,7 +92,7 @@ class DNSPod:
                 return None
             raise
         return {
-            "RecordId": record["RecordId"],
+            "RecordId": record["Id"],
             "Name": record["SubDomain"],
             "Type": record["RecordType"],
             "Value": record["Value"],

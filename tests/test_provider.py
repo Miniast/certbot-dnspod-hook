@@ -77,13 +77,24 @@ def test_describe_normalizes_api_fields(sdk_config):
     api.client.call_json = Mock(
         return_value={
             "Response": {
+                "RequestId": "request-describe",
                 "RecordInfo": {
-                    "RecordId": 7,
+                    # DNSPod detail uses Id; only create/list use RecordId.
+                    "Id": 7,
                     "SubDomain": "_acme-challenge",
                     "RecordType": "TXT",
+                    "RecordLine": "默认",
+                    "RecordLineId": "0",
                     "Value": "token",
+                    "Weight": None,
+                    "MX": 0,
+                    "TTL": 600,
+                    "Enabled": 1,
+                    "MonitorStatus": "",
                     "Remark": "marker",
-                }
+                    "UpdatedOn": "2026-09-06 12:00:00",
+                    "DomainId": 42,
+                },
             }
         }
     )

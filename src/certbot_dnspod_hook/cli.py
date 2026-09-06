@@ -4,12 +4,14 @@ import argparse
 import json
 import logging
 import os
+from importlib.metadata import version
 from pathlib import Path
 
 from .config import HookError, load_config
 from .core import Hook, challenge
 from .propagation import wait_for_txt
 from .provider import DNSPod
+from .setup import add_arguments, setup
 from .state import StateStore
 
 
@@ -20,15 +22,19 @@ def environment_challenge() -> tuple[str, str, str]:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Certbot DNS-01 hooks for Tencent Cloud DNSPod")
+    parser.add_argument("--version", action="version", version=version("certbot-dnspod-hook"))
     parser.add_argument("--config", type=Path, default=Path("/etc/certbot-dnspod-hook/config.toml"))
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("auth", help="Create TXT, wait for DNS and print a state ID")
     cleanup = sub.add_parser("cleanup", help="Remove only the TXT owned by this challenge")
     cleanup.add_argument("--state-id", help="Recover a saved challenge after Certbot has stopped")
+    add_arguments(sub.add_parser("setup", help="Connect an existing certificate and test renewal"))
     sub.add_parser("status", help="List local pending states without contacting DNSPod")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     try:
+        if args.command == "setup":
+            return setup(args)
         config = load_config(args.config)
         with StateStore(config.state_dir) as store:
             if args.command == "status":

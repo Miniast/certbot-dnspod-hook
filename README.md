@@ -2,214 +2,188 @@
 
 Small, standalone Certbot DNS-01 hooks for Tencent Cloud DNSPod.
 
-用一个小型 Python 工具，为 Certbot 自动创建、验证和清理 DNSPod TXT 记录。
-通过 Certbot 官方 hook 接口接入，独立于 Certbot 的 Python 环境，可配合 Snap 版使用。
+为 Certbot 自动创建、验证和清理 DNSPod TXT 记录，支持 Snap 版 Certbot。
+个人维护的精简工具，通过 GitHub Releases 分发；不提供托管服务或可用性承诺。
 
-**状态：0.1.0 / Alpha。** 已提供离线测试；尚未完成真实 DNSPod + Let's Encrypt staging 联调。
-生产接入前，请在自己的域名上完成下面的测试续期。项目尚未发布到 PyPI。
+**0.2.0 / Alpha。** 四个 DNSPod API 和权威 DNS 检查已完成真实验证。
+首次使用会由 Certbot 执行 Let's Encrypt staging 测试，成功后才保存接入选项。
 
-## 范围
+## 安装与接入
 
-- Linux、Python 3.11+；两个直接依赖：腾讯云官方 SDK 公共包、dnspython。
-- 腾讯云 API 3.0，使用 SecretId / SecretKey，可附带临时凭证 Token。
-- 多个显式配置的 DNSPod 托管区域；普通域名、子域名和泛域名。
-- 同名多值 TXT、重复调用、独立清理；校验记录 ID、名称、类型、值和操作标记。
-- 最低传播等待时间 + 查询每个权威 NS，带超时和 UDP/TCP 回退。
-- 私有本地状态、原子写入和进程锁，支持中断后的定向清理。
+要求 Linux、Python 3.11+（含标准库 venv）、已有 Certbot 2.3+、openssl、systemd。
+支持 Snap 的 `snap.certbot.renew.timer` 或系统包的 `certbot.timer`。
+安装包自带 pip 和锁定的纯 Python 依赖，不要求系统 pip、ensurepip、uv 或 Node。
+`setup` 接入已存在的证书；新证书申请见后文。
 
-第一版不支持传统 DNSPod Token、国际站 API、CNAME 验证委托或跨机器共享状态。
-证书签发、私钥、调度和部署交给 Certbot。该程序不会自行修改 nginx 或安装计时器。
+### 私有仓库安装
 
-## 安装
+先用有仓库访问权的 GitHub 账号完成 `gh auth login`，下载固定版本：
 
-开发环境，在项目根目录执行：
+```sh
+gh release download v0.2.0 --repo Miniast/certbot-dnspod-hook --pattern install.sh --pattern '*-bundle.tar.gz' --dir /tmp/certbot-dnspod-hook-0.2.0
+sudo sh /tmp/certbot-dnspod-hook-0.2.0/install.sh --bundle /tmp/certbot-dnspod-hook-0.2.0/certbot-dnspod-hook-0.2.0-bundle.tar.gz
+```
 
-~~~sh
-uv sync --frozen
-uv run --frozen certbot-dnspod-hook --help
-uv run --frozen pytest -q
-~~~
+GitHub 登录仅用于下载。安装和后续续期不需要 GitHub 凭证。
+安装器验证脚本内固定的 SHA-256，并从包内离线安装所有依赖。
 
-服务器部署使用固定路径的独立环境。以下命令由管理员执行，要求系统 Python 3.11+
-且支持 venv；Ubuntu 可能需要先安装对应的 python3-venv 包。
+### 公开仓库的 curl 安装方式
 
-~~~sh
-uv build
-uv export --frozen --no-dev --no-emit-project --format requirements-txt \
-  --output-file dist/requirements.txt
-sudo /usr/bin/python3 -m venv /opt/certbot-dnspod-hook
-sudo /opt/certbot-dnspod-hook/bin/pip install \
-  -r dist/requirements.txt dist/certbot_dnspod_hook-0.1.0-py3-none-any.whl
-~~~
+仅在仓库和 Release 已公开后可使用；私有仓库请用上面的下载方式：
 
-发布包和锁定的依赖在部署时安装。定时续期直接调用已安装的入口，
-不会运行 uv、临时安装依赖或依赖交互式 shell 的 PATH。
-以 root 运行 Certbot 时，工具环境、配置及其父目录应由 root 管理。
+```sh
+curl -fsSL https://github.com/Miniast/certbot-dnspod-hook/releases/download/v0.2.0/install.sh | sudo sh
+```
 
-## 配置
+安装位置为 `/opt/certbot-dnspod-hook/versions/<版本>-<安装编号>`，
+固定入口为 `/usr/local/bin/certbot-dnspod-hook`，经 `current` 链接指向当前版本。
+新版本校验和安装检查通过后才切换链接；失败保留旧版本。
+运行同一安装流程可升级或重新安装，旧版本保留以便回退。
+不会直接安装到系统 Python 的包目录，也不会更改证书或续期设置。
 
-~~~sh
-sudo install -d -m 700 /etc/certbot-dnspod-hook /var/lib/certbot-dnspod-hook
-sudo install -m 600 examples/config.example.toml /etc/certbot-dnspod-hook/config.toml
-sudoedit /etc/certbot-dnspod-hook/config.toml
-~~~
+### 一条命令接入并续签
 
-填写实际凭证及托管区域，例如：
+准备权限为 600 的凭证文件，例如 `dnspod.env`：
 
-~~~toml
+```dotenv
+TENCENTCLOUD_SECRET_ID=YOUR_SECRET_ID
+TENCENTCLOUD_SECRET_KEY=YOUR_SECRET_KEY
+```
+
+可选 `TENCENTCLOUD_TOKEN`。支持纯 `KEY=value`、成对单/双引号、空行和整行注释；
+不执行 shell、不做变量替换，不支持 `export`、行尾注释或重复键。
+文件需由 root 或执行 sudo 的用户所有。项目内 `.env`、`.env.*` 已加入 Git 忽略规则。
+
+已有证书示例：
+
+```sh
+sudo certbot-dnspod-hook setup --cert-name example.com --zone example.com --credentials-file ./dnspod.env --renew-now --deploy-nginx
+```
+
+也支持行内指定凭证：
+
+```sh
+sudo certbot-dnspod-hook setup --cert-name example.com --zone example.com --secret-id 'YOUR_SECRET_ID' --secret-key 'YOUR_SECRET_KEY' --renew-now
+```
+
+行内凭证可能出现在 shell 历史和进程参数中；文件方式更适合长期使用。
+程序不会把密钥加入 Certbot 命令或日志。
+
+- `--cert-name`：`certbot certificates` 显示的证书名称。
+- `--zone`：DNSPod 实际托管区域，可重复。检查证书中全部 DNS 名称都被配置区域覆盖。
+- `--renew-now`：staging 成功后，执行一次正式强制续签；不带则只测试并关联。
+- `--deploy-nginx`：先验证 nginx 配置，再保存“检查配置后 reload”的部署脚本。
+  staging 也测试该部署钩子；若证书已有其他 deploy hook 则拒绝覆盖，省略此选项即可沿用原钩子。
+- `--propagation-seconds` / `--propagation-timeout`：最低等待秒数和总超时，默认 120 / 600。
+
+`setup` 备份原续期配置，将凭证复制到 root 所有、权限 600 的独立配置文件。
+每次接入使用新的配置文件，避免失败时影响旧的凭证配置。
+通过 `certbot reconfigure` 完成 staging 测试和 hooks 保存，然后启用已有的 Certbot timer。
+Certbot 负责证书和续期配置；工具不直接重写 `/etc/letsencrypt/renewal/*.conf`。
+
+失败时停止后续步骤：staging 失败不会触发正式续签；正式续签失败保留已通过测试的接入配置。
+输出中会给出凭证配置、原配置备份和本地状态检查命令。
+保留配置文件用于恢复可能未清理的挑战；后续续期不再依赖最初的凭证文件或终端环境。
+
+## 验证接入与恢复
+
+定时任务复用已保存的 hooks，可检查：
+
+```sh
+sudo certbot renew --cert-name example.com --dry-run
+```
+
+上面的 dry-run 默认不执行 deploy hook；若要一起检查 nginx reload，加 `--run-deploy-hooks`。
+不要把 `--force-renewal` 加入日常定时任务；该选项仅用于明确要求的一次立即续签。
+
+`setup` 打印实际配置路径。以下用 `CONFIG.toml` 代指它：
+
+```sh
+sudo certbot-dnspod-hook --config /etc/certbot-dnspod-hook/CONFIG.toml status
+sudo certbot-dnspod-hook --config /etc/certbot-dnspod-hook/CONFIG.toml cleanup --state-id STATE_ID
+```
+
+`status` 只读本地状态，不联系 DNSPod。只有确认 Certbot 已停止使用该挑战时才手动清理。
+若创建请求结果不明且列表暂时找不到记录，状态和配置保留；先核对 DNSPod，再定向恢复。
+不要清空整个 `_acme-challenge`，同名 TXT 可能属于其他操作。
+
+卸载前应先给相关证书配置其他可用的续期方式，再移除命令链接和程序版本目录。
+凭证、状态、Certbot 证书与备份分别保存在 `/etc/certbot-dnspod-hook`、
+`/var/lib/certbot-dnspod-hook`、`/etc/letsencrypt`；升级不会清空这些目录。
+
+## 范围与工作机制
+
+- 使用腾讯云 API 3.0 和官方公共 SDK，支持 SecretId / SecretKey、可选临时 Token。
+- 显式区域匹配，支持普通域名、子域名、泛域名和同名多值 TXT。
+- 创建前写入私有本地状态，每笔操作具有独有的 Remark 标记。
+- `CreateRecord` 不重发；创建结果不明时最多查询七轮、间隔 10 秒按标记查找。
+- 清理按保存的记录 ID 查询，并核对名称、类型、值、Remark 后删除。
+- 原子状态写入和本机进程锁；DNS 传播超时尝试清理，异常时保留可恢复状态。
+- 最低传播等待时间后检查每个权威 NS，支持 UDP/TCP 回退。
+
+当前不支持传统 DNSPod Token、国际站 API、CNAME 验证委托或跨机器共享状态。
+权威 DNS 检查是本机采样，不保证 CA 的全球视角一致，默认仍保留 120 秒等待。
+四个 API 的请求、完整响应、错误格式及字段映射见 [接口文档](docs/DNSPOD_API.md)。
+所需操作权限为 `CreateRecord`、`DescribeRecordList`、`DescribeRecord`、`DeleteRecord`。
+
+## 手动配置与新证书
+
+安装器只安装程序，不要求先执行 `setup`。也可以手动准备权限 600 的 TOML 配置：
+
+```toml
 secret_id = "YOUR_SECRET_ID"
 secret_key = "YOUR_SECRET_KEY"
-zones = ["example.com", "example.net"]
-state_dir = "/var/lib/certbot-dnspod-hook"
+zones = ["example.com"]
+state_dir = "/var/lib/certbot-dnspod-hook/example.com"
 propagation_seconds = 120
 propagation_timeout = 600
 ttl = 600
-~~~
+```
 
-配置文件要求为当前执行用户所有、权限 600；状态目录权限 700。
-所有参数示例见 [config.example.toml](examples/config.example.toml)。
+完整选项见 [示例配置](examples/config.example.toml)。配置和状态要求由执行用户所有，
+权限分别为 600 和 700。全局默认配置路径仍为 `/etc/certbot-dnspod-hook/config.toml`。
+环境变量 `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY`、`TENCENTCLOUD_TOKEN`
+优先于 TOML；普通 auth/cleanup 不自动读取 `.env`，`setup --credentials-file` 负责导入。
 
-也可以通过环境变量传入凭证：
-TENCENTCLOUD_SECRET_ID、TENCENTCLOUD_SECRET_KEY、TENCENTCLOUD_TOKEN；
-它们优先于配置文件。定时任务不会自动继承终端里 export 的变量。
+首次申请新证书，指定准备好的配置路径、域名和邮箱，先测试：
 
-zones 填写 DNSPod 实际托管区域。例如 www.example.com 的证书通常只需配置 example.com；
-若 sub.example.com 本身是独立托管区域，则将它单独加入，程序选择最长的域名边界匹配。
-不通过账户列表猜测域名，也不简单截取最后两个标签。
-
-API 需要 CreateRecord、DescribeRecordList、DescribeRecord、DeleteRecord 四项操作权限。
-使用专用凭证，并在腾讯云访问管理中按实际支持的资源粒度限制到目标域名。
-日志仅记录错误码和请求 ID，不输出 SDK 错误正文或凭证。
-不要将真实配置、证书、私钥或状态文件提交到 Git。
-
-## 接入 Certbot
-
-### 已有证书
-
-Certbot 2.3+ 可通过 reconfigure 测试并保存新的续期选项。先确认实际证书名称：
-
-~~~sh
-sudo certbot certificates
-sudo certbot reconfigure --cert-name example.com \
-  --authenticator manual --preferred-challenges dns \
-  --manual-auth-hook "/opt/certbot-dnspod-hook/bin/certbot-dnspod-hook auth" \
-  --manual-cleanup-hook "/opt/certbot-dnspod-hook/bin/certbot-dnspod-hook cleanup"
-~~~
-
-reconfigure 会联系 Let's Encrypt staging，并真实创建、清理 DNS TXT；
-成功后保存续期选项，但不会替换现有生产证书。然后验证已保存的配置：
-
-~~~sh
-sudo certbot renew --cert-name example.com --dry-run
-~~~
-
-若证书已到续期时间，执行一次正式续期：
-
-~~~sh
-sudo certbot renew --cert-name example.com
-~~~
-
-### 新证书
-
-先测试域名验证，替换实际域名与联系邮箱：
-
-~~~sh
-sudo certbot certonly --dry-run --non-interactive --agree-tos \
-  --email admin@example.com \
+```sh
+sudo certbot certonly --dry-run --non-interactive --agree-tos --email admin@example.com \
   --manual --preferred-challenges dns \
-  --manual-auth-hook "/opt/certbot-dnspod-hook/bin/certbot-dnspod-hook auth" \
-  --manual-cleanup-hook "/opt/certbot-dnspod-hook/bin/certbot-dnspod-hook cleanup" \
+  --manual-auth-hook '/usr/local/bin/certbot-dnspod-hook --config /etc/certbot-dnspod-hook/config.toml auth' \
+  --manual-cleanup-hook '/usr/local/bin/certbot-dnspod-hook --config /etc/certbot-dnspod-hook/config.toml cleanup' \
   -d example.com -d '*.example.com'
-~~~
+```
 
-确认成功后，移除 --dry-run 再申请生产证书。
-后续使用 certbot renew，Certbot 会复用保存的 hook 配置。
-
-### 调度和 nginx
-
-沿用安装方式已有的续期任务。Snap 版通常使用 snap.certbot.renew.timer；
-检查是否启用，避免重复添加 cron。
-
-nginx 可选部署钩子：
-
-~~~sh
-sudo install -m 755 examples/nginx-deploy.sh \
-  /etc/letsencrypt/renewal-hooks/deploy/20-nginx-reload
-~~~
-
-它先检查 nginx 配置，再 reload。deploy hook 仅在成功签发/续期后执行；
-dry-run 默认不运行它。需要测试部署钩子时，另加 --run-deploy-hooks，
-这会实际调用 nginx 检查和 reload，应在确认配置正确后执行。
-同时监测续期失败、部署钩子日志与站点实际证书有效期；计时器处于 enabled 不代表续期成功。
-
-## 工作方式与恢复
-
-auth 从 CERTBOT_IDENTIFIER（兼容 CERTBOT_DOMAIN）和 CERTBOT_VALIDATION 获取挑战；
-stdout 仅输出一个状态 ID。cleanup 验证 CERTBOT_AUTH_OUTPUT 与当前挑战相符；
-认证脚本失败而没有 stdout 时，仍可从同一组挑战变量定位状态。
-
-创建 TXT 前，先保存唯一操作标记，并将标记写入 DNSPod 的 Remark。
-创建请求只发送一次。网络超时后，按标记轮询列表至多七次，间隔 10 秒，
-覆盖 DNSPod 文档指出的约 30 秒索引延迟。
-如果仍不确定结果，保留状态并报错，不再次创建或接管同值的外部记录。
-对于明确的权限、参数或限流拒绝，丢弃未完成状态，以便修正配置后重试。
-
-cleanup 按记录 ID 查询，核对类型、主机名、值和标记后才删除。
-记录被别人修改时拒绝删除；API 失败时保留状态。DNS 传播超时也会尝试清理。
-SIGKILL、断电或任意时刻的进程退出可能留下状态，可在确认 Certbot 已停止后处理：
-
-~~~sh
-sudo /opt/certbot-dnspod-hook/bin/certbot-dnspod-hook status
-sudo /opt/certbot-dnspod-hook/bin/certbot-dnspod-hook cleanup --state-id STATE_ID
-~~~
-
-status 只读本地状态，不联系 DNSPod；--state-id 仅清理指定挑战。
-不要在另一笔续期仍使用该 TXT 时手动清理。
-所有本机调用应共用一个状态目录；锁只覆盖 hook 执行，不协调整笔 ACME 订单或其他机器。
-
-如果待定记录一直找不到，先在 DNSPod 控制台核对对应主机名、TXT 值和 Remark。
-只有确认那次创建未发生、没有待清理记录后，才手动移除该 ID 对应的本地 JSON，
-再重新验证。程序刻意不提供“清空全部 TXT”操作。
-
-权威 DNS 检查是本机采样，不保证 Let's Encrypt 的全球视角完全一致；
-DNS anycast、缓存和委托都可能造成差异。默认等待 120 秒仍失败时，
-结合实际传播情况调整 propagation_seconds 和更大的 propagation_timeout。
-TTL 需符合 DNSPod 套餐限制，它不等于传播等待时间。
+成功后移除 `--dry-run` 正式申请。新证书需要明确域名和 ACME 条款同意，因此不由 `setup` 猜测创建。
 
 ## 开发与发布
 
-~~~sh
+```sh
+uv sync --frozen
 uv run --frozen ruff check .
 uv run --frozen ruff format --check .
 uv run --frozen pytest -q
-uv build
-~~~
+uv run --frozen python scripts/build_release.py --repository Miniast/certbot-dnspod-hook
+DNSPOD_TEST_RELEASE="$PWD/dist/release/0.2.0" uv run --frozen pytest -q tests/test_installer.py
+```
 
-测试使用模拟 API 和 DNS 响应，不需要凭证，也不会修改真实 DNS。
-GitHub Actions 已配置 Python 3.11–3.14 的测试矩阵。
-源码位于 src/certbot_dnspod_hook，按配置、API、状态、验证流程、DNS 查询和命令入口分开。
+构建器从 `uv.lock` 选择运行时依赖和 pip 的通用 wheel，下载后校验锁定的哈希，
+再打包应用 wheel、依赖、带哈希的 requirements 和许可证。
+产物位于 `dist/release/0.2.0`：`install.sh`、`*-bundle.tar.gz`、`SHA256SUMS`、
+`requirements.txt`、`release.json`。安装器内固定 bundle 哈希，校验文件也列出安装器自身的哈希。
+这些校验用于检测内容不符；安装器本身仍需从你信任的发布来源取得。
 
-推送前选择 GitHub 账号/组织和公开或私有仓库，创建名为 certbot-dnspod-hook 的空仓库，
-不在 GitHub 端初始化 README，然后执行：
+不传 `--repository` 时生成仅供本地测试的发布包，安装器需给 `--base-url` 或 `--bundle`。
+测试 HTTP 仅允许 localhost / 回环地址；其他下载地址要求 HTTPS。
+安装器的 `--prefix`、`--bin-dir` 可用于临时目录中的独立安装验证。
 
-~~~sh
-git remote add origin git@github.com:YOUR_ACCOUNT/certbot-dnspod-hook.git
-git push -u origin main
-~~~
+发布到私有仓库时，将上述产物附加到对应版本的 GitHub Release，并标记 prerelease。
+不要把 `.env`、凭证、状态、证书或本地验证日志提交到 Git。
+MIT 许可证见 [LICENSE](LICENSE)。
 
-GitHub 简介建议：Small Certbot DNS-01 hooks for Tencent Cloud DNSPod.
-建议 topics：certbot、dnspod、dns-01、letsencrypt、python。
+## 官方参考
 
-首个版本发布前完成真实 staging 验证、TXT 清理与部署钩子验证，
-再标记版本。MIT 许可证见 [LICENSE](LICENSE)。
-
-## 官方接口参考
-
-- [Certbot hooks 与自动续期](https://eff-certbot.readthedocs.io/en/stable/using.html#pre-and-post-validation-hooks)
-- [Certbot 修改续期配置](https://eff-certbot.readthedocs.io/en/stable/using.html#modifying-the-renewal-configuration-of-existing-certificates)
-- [DNSPod CreateRecord](https://cloud.tencent.com/document/api/1427/56180)
-- [DNSPod DescribeRecordList](https://cloud.tencent.com/document/api/1427/56166)
-- [DNSPod DescribeRecord](https://cloud.tencent.com/document/api/1427/56168)
-- [DNSPod DeleteRecord](https://cloud.tencent.com/document/api/1427/56176)
+- [Certbot 自动续期与修改续期配置](https://eff-certbot.readthedocs.io/en/stable/using.html#modifying-the-renewal-configuration-of-existing-certificates)
 - [腾讯云官方 Python SDK](https://github.com/TencentCloud/tencentcloud-sdk-python)
-- [Let's Encrypt DNS-01 与传播限制](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge)
+- [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)
