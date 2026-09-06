@@ -5,7 +5,8 @@ Small, standalone Certbot DNS-01 hooks for Tencent Cloud DNSPod.
 为 Certbot 自动创建、验证和清理 DNSPod TXT 记录，支持 Snap 版 Certbot。
 个人维护的精简工具，通过 GitHub Releases 分发；不提供托管服务或可用性承诺。
 
-**0.3.0 / Alpha。** 四个 DNSPod API 和权威 DNS 检查已完成真实验证。
+**0.3.0 / Alpha。** 已在一台实际服务器完成从零安装、正式续签与 nginx 部署，
+并验证 0.3.0 升级、staging 续签及卸载预览；详见 [验证记录](docs/VALIDATION.md)。
 首次使用会由 Certbot 执行 Let's Encrypt staging 测试，成功后才保存接入选项。
 
 ## 安装与接入
