@@ -146,7 +146,7 @@ def uninstall(args):
     for path in (directory, state_root):
         if path.exists():
             setup_module.StateStore(path, create=False)
-    prefix = Path("/opt/certbot-dnspod-hook")
+    prefix = setup_module.INSTALL_ROOT
     return remove_installation(
         args, directory, state_root, setup_module.RENEWAL_DIR, prefix, setup_module.HOOK_COMMAND
     )
@@ -156,7 +156,7 @@ def remove_installation(args, directory, state_root, renewal_root, prefix, launc
     manifest_path = directory / MANIFEST
     data = json.loads(manifest_path.read_text()) if manifest_path.exists() else {"certificates": {}}
     installation = json.loads((prefix / "install.json").read_text())
-    if installation.get("version") != 1 or installation.get("launcher") != str(launcher):
+    if installation.get("version") != 2 or installation.get("launcher") != str(launcher):
         raise HookError("Installation ownership metadata does not match this command")
     versions = installation["versions"]
     if any(not re.fullmatch(r"\d+\.\d+\.\d+-[0-9a-f]{12}", name) for name in versions):
@@ -172,6 +172,15 @@ def remove_installation(args, directory, state_root, renewal_root, prefix, launc
         or (prefix / "current").resolve().name not in versions
     ):
         raise HookError("Active version is not owned by this installation")
+    if (
+        directory != prefix / "config"
+        or state_root != prefix / "state"
+        or launcher.parent != prefix / "bin"
+    ):
+        raise HookError("Managed paths must stay inside the installation directory")
+    for path in (prefix, directory, state_root, launcher.parent):
+        if path.is_symlink():
+            raise HookError("Managed directory was replaced by a symlink")
     for name in versions:
         if (prefix / "versions" / name).is_symlink():
             raise HookError("Version directory was replaced by a symlink")
@@ -265,7 +274,7 @@ def remove_installation(args, directory, state_root, renewal_root, prefix, launc
                 shutil.rmtree(path)
         (prefix / "install.json").unlink()
         (prefix / ".install.lock").unlink(missing_ok=True)
-        for path in (prefix / "versions", prefix):
+        for path in (prefix / "versions", launcher.parent, prefix):
             if path.exists() and not any(path.iterdir()):
                 path.rmdir()
         print(

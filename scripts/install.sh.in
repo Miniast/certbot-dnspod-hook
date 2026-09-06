@@ -32,25 +32,28 @@ def install():
     parser = argparse.ArgumentParser(description='Install an isolated Certbot DNSPod hook')
     parser.add_argument('--base-url', default=DEFAULT_URL, help='Release URL; HTTP allowed only on loopback')
     parser.add_argument('--bundle', type=Path, help='Use a downloaded private/offline release bundle')
-    parser.add_argument('--prefix', type=Path, default=Path('/opt/certbot-dnspod-hook'))
-    parser.add_argument('--bin-dir', type=Path, default=Path('/usr/local/bin'))
+    parser.add_argument('--prefix', type=Path, default=Path.home() / '.certbot-dnspod-hook')
     args = parser.parse_args()
-    if not args.prefix.is_absolute() or not args.bin_dir.is_absolute():
+    if not args.prefix.is_absolute():
         raise RuntimeError('Installation paths must be absolute')
-    if os.geteuid() != 0 and (str(args.prefix).startswith('/opt/') or str(args.bin_dir).startswith('/usr/')):
-        raise RuntimeError('Run the system installer with sudo sh')
     parsed = urllib.parse.urlsplit(args.base_url)
     if not args.bundle and parsed.scheme != 'https' and not (parsed.scheme == 'http' and parsed.hostname in ('127.0.0.1', '::1', 'localhost')):
         raise RuntimeError('Release URL must use HTTPS (or loopback HTTP for local testing)')
-    prefix = args.prefix
-    for directory in (prefix, args.bin_dir):
-        directory.mkdir(mode=0o755, parents=True, exist_ok=True)
+    prefix = args.prefix.resolve()
+    if prefix == Path('/') or any(path.is_symlink() for path in (args.prefix, *args.prefix.parents)):
+        raise RuntimeError('Choose a dedicated directory without symlink components')
+    if (prefix / 'install.json').exists() and json.loads((prefix / 'install.json').read_text()).get('version') != 2:
+        raise RuntimeError('Detach and uninstall the older layout before installing this release')
+    if (prefix / 'bin').is_symlink():
+        raise RuntimeError('Installation bin directory must not be a symlink')
+    for directory in (prefix, prefix / 'bin'):
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         for path in (directory, *directory.parents):
             info = path.stat()
             # Custom user-owned prefixes support isolated installer tests.
             if info.st_uid not in (0, os.geteuid()) or info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX:
                 raise RuntimeError('Installation directories must not be writable by other users')
-    launcher = args.bin_dir / 'certbot-dnspod-hook'
+    launcher = prefix / 'bin/certbot-dnspod-hook'
     target = prefix / 'current/bin/certbot-dnspod-hook'
     if os.path.lexists(launcher) and (not launcher.is_symlink() or os.readlink(launcher) != str(target)):
         raise RuntimeError('Existing launcher is not managed by this installer')
@@ -109,7 +112,9 @@ def install():
                 if not os.path.lexists(launcher):
                     launcher.symlink_to(target)
                 receipt = prefix / 'install.json'
-                owned = json.loads(receipt.read_text()) if receipt.exists() else {'version': 1, 'launcher': str(launcher), 'versions': []}
+                owned = json.loads(receipt.read_text()) if receipt.exists() else {'version': 2, 'launcher': str(launcher), 'versions': []}
+                if owned.get('version') != 2 or owned.get('launcher') != str(launcher):
+                    raise RuntimeError('Existing installation metadata does not match this layout')
                 if current.exists() and current.resolve().name not in owned['versions']:
                     owned['versions'].append(current.resolve().name)
                 owned['versions'].append(slot.name)
@@ -128,7 +133,7 @@ def install():
                     switch.unlink(missing_ok=True)
                 activated = True
                 print('Installed ' + VERSION + ': ' + str(launcher), flush=True)
-                print('Next: sudo certbot-dnspod-hook setup --cert-name DOMAIN --zone ZONE --credentials-file FILE --renew-now')
+                print('Next: ' + str(launcher) + ' setup --cert-name DOMAIN --zone ZONE --credentials-file FILE --renew-now')
             finally:
                 if not activated:
                     shutil.rmtree(slot, ignore_errors=True)

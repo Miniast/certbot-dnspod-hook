@@ -79,7 +79,7 @@ def load_config(path: Path) -> Config:
     ):
         if key in data and (type(data[key]) is not int or not low <= data[key] <= high):
             raise HookError(f"{key} must be an integer between {low} and {high}")
-    state_dir = Path(data.get("state_dir", "/var/lib/certbot-dnspod-hook"))
+    state_dir = Path(data.get("state_dir", path.resolve().parent / "state"))
     if not state_dir.is_absolute():
         raise HookError("state_dir must be an absolute path")
     for key, env in (

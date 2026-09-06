@@ -25,7 +25,8 @@ def test_install_from_http_and_failed_update_preserves_working_install(tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        prefix, bin_dir = tmp_path / "installed", tmp_path / "bin"
+        prefix = tmp_path / "installed"
+        bin_dir = prefix / "bin"
         command = [
             "sh",
             str(release / "install.sh"),
@@ -33,8 +34,6 @@ def test_install_from_http_and_failed_update_preserves_working_install(tmp_path)
             f"http://127.0.0.1:{server.server_port}",
             "--prefix",
             str(prefix),
-            "--bin-dir",
-            str(bin_dir),
         ]
         env = {
             key: value for key, value in os.environ.items() if not key.startswith("TENCENTCLOUD_")
@@ -42,9 +41,21 @@ def test_install_from_http_and_failed_update_preserves_working_install(tmp_path)
         env["PIP_INDEX_URL"] = "http://127.0.0.1:1/no-network-index"
         installed = subprocess.run(command, capture_output=True, text=True, env=env, timeout=60)
         assert installed.returncode == 0, installed.stdout + installed.stderr
+        assert set(tmp_path.iterdir()) == {served, prefix}
         launcher = bin_dir / "certbot-dnspod-hook"
         assert subprocess.check_output([str(launcher), "--version"], text=True).strip() == version
         assert "setup" in subprocess.check_output([str(launcher), "--help"], text=True)
+        located = subprocess.check_output(
+            [
+                str(prefix / "current/bin/python"),
+                "-B",
+                "-c",
+                "from certbot_dnspod_hook.layout import installation_root; "
+                "print(installation_root())",
+            ],
+            text=True,
+        ).strip()
+        assert located == str(prefix)
         before = (prefix / "current").readlink()
         bundle = next(served.glob("*-bundle.tar.gz"))
         bundle.write_bytes(bundle.read_bytes() + b"corrupted")
@@ -69,8 +80,8 @@ raise SystemExit(remove_installation(SimpleNamespace(detach=False, dry_run=False
                 "-B",
                 "-c",
                 program,
-                str(tmp_path / "unused-config"),
-                str(tmp_path / "unused-state"),
+                str(prefix / "config"),
+                str(prefix / "state"),
                 str(renewal_root),
                 str(prefix),
                 str(launcher),

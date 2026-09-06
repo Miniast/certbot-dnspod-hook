@@ -12,13 +12,15 @@ import uuid
 from pathlib import Path
 
 from .config import Config, HookError, domain_name
+from .layout import installation_root
 from .management import register
 from .state import StateStore
 
-CONFIG_DIR = Path("/etc/certbot-dnspod-hook")
-STATE_DIR = Path("/var/lib/certbot-dnspod-hook")
+INSTALL_ROOT = installation_root()
+CONFIG_DIR = INSTALL_ROOT / "config"
+STATE_DIR = INSTALL_ROOT / "state"
 RENEWAL_DIR = Path("/etc/letsencrypt/renewal")
-HOOK_COMMAND = Path("/usr/local/bin/certbot-dnspod-hook")
+HOOK_COMMAND = INSTALL_ROOT / "bin/certbot-dnspod-hook"
 KEY_NAMES = ("TENCENTCLOUD_SECRET_ID", "TENCENTCLOUD_SECRET_KEY", "TENCENTCLOUD_TOKEN")
 NGINX_DEPLOY = "#!/bin/sh\nset -eu\n/usr/sbin/nginx -t\n/usr/bin/systemctl reload nginx\n"
 
@@ -190,6 +192,20 @@ def setup(args) -> int:
         raise HookError(
             f"Expected Certbot timer {timer} is missing; install its systemd timer first"
         )
+    if (
+        run([systemctl, "show", timer, "--property=UnitFileState", "--value"], capture=True).strip()
+        != "enabled"
+        or run(
+            [systemctl, "show", timer, "--property=ActiveState", "--value"], capture=True
+        ).strip()
+        != "active"
+    ):
+        raise HookError(
+            f"Existing Certbot timer {timer} must already be enabled and active; "
+            "setup does not change system service settings"
+        )
+    if "/etc/certbot-dnspod-hook/" in original or "/usr/local/bin/certbot-dnspod-hook" in original:
+        raise HookError("Detach the 0.3.x system installation before setting up this version")
     deploy_path = CONFIG_DIR / "nginx-deploy.sh"
     if args.deploy_nginx:
         previous = re.search(r"^(?:deploy_hook|renew_hook)\s*=\s*(.+)$", original, re.MULTILINE)
@@ -264,7 +280,6 @@ def setup(args) -> int:
             raise HookError(
                 "Certbot did not persist the expected hooks; inspect renewal configuration"
             )
-        run([systemctl, "enable", "--now", timer])
         if args.renew_now:
             print("Staging passed. Requesting one production renewal...", flush=True)
             run(

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .config import HookError, load_config
 from .core import Hook, challenge
+from .layout import installation_root
 from .management import add_arguments as add_uninstall_arguments
 from .management import uninstall
 from .propagation import wait_for_txt
@@ -25,7 +26,7 @@ def environment_challenge() -> tuple[str, str, str]:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Certbot DNS-01 hooks for Tencent Cloud DNSPod")
     parser.add_argument("--version", action="version", version=version("certbot-dnspod-hook"))
-    parser.add_argument("--config", type=Path, default=Path("/etc/certbot-dnspod-hook/config.toml"))
+    parser.add_argument("--config", type=Path, default=installation_root() / "config/config.toml")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("auth", help="Create TXT, wait for DNS and print a state ID")
     cleanup = sub.add_parser("cleanup", help="Remove only the TXT owned by this challenge")

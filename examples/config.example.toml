@@ -1,4 +1,4 @@
-# Copy to /etc/certbot-dnspod-hook/config.toml; chmod 600, owned by the hook user.
+# Copy inside your installation directory; chmod 600, owned by the hook user.
 # Tencent Cloud API 3.0 credentials. Traditional DNSPod tokens are not compatible.
 # Alternatively set TENCENTCLOUD_SECRET_ID, TENCENTCLOUD_SECRET_KEY, TENCENTCLOUD_TOKEN.
 secret_id = "REPLACE_WITH_TENCENTCLOUD_SECRET_ID"
@@ -7,7 +7,8 @@ secret_key = "REPLACE_WITH_TENCENTCLOUD_SECRET_KEY"
 
 # DNSPod managed zones, not every certificate hostname. Longest matching zone wins.
 zones = ["example.com", "example.net"]
-state_dir = "/var/lib/certbot-dnspod-hook"
+# Omit state_dir to use a state/ folder beside this configuration.
+# state_dir = "/root/.certbot-dnspod-hook/state/manual"
 
 # Minimum wait, followed by polling every authoritative nameserver.
 propagation_seconds = 120

@@ -5,14 +5,15 @@ Small, standalone Certbot DNS-01 hooks for Tencent Cloud DNSPod.
 为 Certbot 自动创建、验证和清理 DNSPod TXT 记录，支持 Snap 版 Certbot。
 个人维护的精简工具，通过 GitHub Releases 分发；不提供托管服务或可用性承诺。
 
-**0.3.0 / Alpha。** 已在一台实际服务器完成从零安装、正式续签与 nginx 部署，
-并验证 0.3.0 升级、staging 续签及卸载预览；详见 [验证记录](docs/VALIDATION.md)。
+**0.4.0 / Alpha。** 工具自身的程序、凭证、备份和状态集中在单个安装目录。
+Alpha 表示验证范围有限；版本号按功能变更递增。此前正式续签结果见 [0.3.0 验证记录](docs/VALIDATION.md)。
 首次使用会由 Certbot 执行 Let's Encrypt staging 测试，成功后才保存接入选项。
 
 ## 安装与接入
 
 要求 Linux、Python 3.11+（含标准库 venv）、已有 Certbot 2.3+、openssl、systemd。
-支持 Snap 的 `snap.certbot.renew.timer` 或系统包的 `certbot.timer`。
+复用已启用且正在运行的 Snap `snap.certbot.renew.timer` 或系统包 `certbot.timer`。
+不创建或修改定时器，也不修改 shell 配置。
 安装包自带 pip 和锁定的纯 Python 依赖，不要求系统 pip、ensurepip、uv 或 Node。
 `setup` 接入已存在的证书；新证书申请见后文。
 
@@ -21,8 +22,8 @@ Small, standalone Certbot DNS-01 hooks for Tencent Cloud DNSPod.
 先用有仓库访问权的 GitHub 账号完成 `gh auth login`，下载固定版本：
 
 ```sh
-gh release download v0.3.0 --repo Miniast/certbot-dnspod-hook --pattern install.sh --pattern '*-bundle.tar.gz' --dir /tmp/certbot-dnspod-hook-0.3.0
-sudo sh /tmp/certbot-dnspod-hook-0.3.0/install.sh --bundle /tmp/certbot-dnspod-hook-0.3.0/certbot-dnspod-hook-0.3.0-bundle.tar.gz
+gh release download v0.4.0 --repo Miniast/certbot-dnspod-hook --pattern install.sh --pattern '*-bundle.tar.gz' --dir /tmp/certbot-dnspod-hook-0.4.0
+sudo sh /tmp/certbot-dnspod-hook-0.4.0/install.sh --bundle /tmp/certbot-dnspod-hook-0.4.0/certbot-dnspod-hook-0.4.0-bundle.tar.gz
 ```
 
 GitHub 登录仅用于下载。安装和后续续期不需要 GitHub 凭证。
@@ -33,11 +34,14 @@ GitHub 登录仅用于下载。安装和后续续期不需要 GitHub 凭证。
 仅在仓库和 Release 已公开后可使用；私有仓库请用上面的下载方式：
 
 ```sh
-curl -fsSL https://github.com/Miniast/certbot-dnspod-hook/releases/download/v0.3.0/install.sh | sudo sh
+curl -fsSL https://github.com/Miniast/certbot-dnspod-hook/releases/download/v0.4.0/install.sh | sudo sh
 ```
 
-安装位置为 `/opt/certbot-dnspod-hook/versions/<版本>-<安装编号>`，
-固定入口为 `/usr/local/bin/certbot-dnspod-hook`，经 `current` 链接指向当前版本。
+默认安装在执行安装器的用户家目录下的 `.certbot-dnspod-hook`；
+上面的 sudo 安装通常对应 `/root/.certbot-dnspod-hook`。以下系统证书示例均使用这个路径。
+也可用 `--prefix /绝对路径` 指定唯一安装目录。
+命令入口为 `<安装目录>/bin/certbot-dnspod-hook`，经内部 `current` 链接指向当前版本。
+不会在 `/usr/local/bin` 添加链接或自动修改 PATH。
 新版本校验和安装检查通过后才切换链接；失败保留旧版本。
 运行同一安装流程可升级或重新安装，旧版本保留以便回退。
 不会直接安装到系统 Python 的包目录，也不会更改证书或续期设置。
@@ -58,13 +62,13 @@ TENCENTCLOUD_SECRET_KEY=YOUR_SECRET_KEY
 已有证书示例：
 
 ```sh
-sudo certbot-dnspod-hook setup --cert-name example.com --zone example.com --credentials-file ./dnspod.env --renew-now --deploy-nginx
+sudo /root/.certbot-dnspod-hook/bin/certbot-dnspod-hook setup --cert-name example.com --zone example.com --credentials-file ./dnspod.env --renew-now --deploy-nginx
 ```
 
 也支持行内指定凭证：
 
 ```sh
-sudo certbot-dnspod-hook setup --cert-name example.com --zone example.com --secret-id 'YOUR_SECRET_ID' --secret-key 'YOUR_SECRET_KEY' --renew-now
+sudo /root/.certbot-dnspod-hook/bin/certbot-dnspod-hook setup --cert-name example.com --zone example.com --secret-id 'YOUR_SECRET_ID' --secret-key 'YOUR_SECRET_KEY' --renew-now
 ```
 
 行内凭证可能出现在 shell 历史和进程参数中；文件方式更适合长期使用。
@@ -79,7 +83,7 @@ sudo certbot-dnspod-hook setup --cert-name example.com --zone example.com --secr
 
 `setup` 备份原续期配置，将凭证复制到 root 所有、权限 600 的独立配置文件。
 每次接入使用新的配置文件，避免失败时影响旧的凭证配置。
-通过 `certbot reconfigure` 完成 staging 测试和 hooks 保存，然后启用已有的 Certbot timer。
+通过 `certbot reconfigure` 完成 staging 测试和 hooks 保存，后续由已有的 Certbot timer 续签。
 Certbot 负责证书和续期配置；工具不直接重写 `/etc/letsencrypt/renewal/*.conf`。
 
 失败时停止后续步骤：staging 失败不会触发正式续签；正式续签失败保留已通过测试的接入配置。
@@ -100,8 +104,8 @@ sudo certbot renew --cert-name example.com --dry-run
 `setup` 打印实际配置路径。以下用 `CONFIG.toml` 代指它：
 
 ```sh
-sudo certbot-dnspod-hook --config /etc/certbot-dnspod-hook/CONFIG.toml status
-sudo certbot-dnspod-hook --config /etc/certbot-dnspod-hook/CONFIG.toml cleanup --state-id STATE_ID
+sudo /root/.certbot-dnspod-hook/bin/certbot-dnspod-hook --config /root/.certbot-dnspod-hook/config/CONFIG.toml status
+sudo /root/.certbot-dnspod-hook/bin/certbot-dnspod-hook --config /root/.certbot-dnspod-hook/config/CONFIG.toml cleanup --state-id STATE_ID
 ```
 
 `status` 只读本地状态，不联系 DNSPod。只有确认 Certbot 已停止使用该挑战时才手动清理。
@@ -110,33 +114,42 @@ sudo certbot-dnspod-hook --config /etc/certbot-dnspod-hook/CONFIG.toml cleanup -
 
 ## 写入范围与卸载
 
-工具自己的持久写入集中在以下位置：
+工具自己的持久文件全部位于一个目录。默认 sudo 安装的布局：
 
-| 位置 | 内容 |
-| --- | --- |
-| `/opt/certbot-dnspod-hook` | 独立程序环境、受管版本清单、当前版本链接和安装锁 |
-| `/usr/local/bin/certbot-dnspod-hook` | 固定命令链接 |
-| `/etc/certbot-dnspod-hook` | 凭证配置、接入前备份、文件归属清单、可选 nginx 钩子 |
-| `/var/lib/certbot-dnspod-hook` | 挑战状态和进程锁 |
+```text
+/root/.certbot-dnspod-hook/
+├── bin/certbot-dnspod-hook   # 命令入口，链接仍在目录内
+├── current                 # 当前版本链接
+├── versions/               # 独立 Python 环境及旧版本
+├── config/                 # 凭证、备份、归属清单、可选 nginx 钩子
+├── state/                  # 挑战状态和锁
+└── install.json            # 安装清单
+```
 
-安装临时下载文件在 `/opt/certbot-dnspod-hook/.download-*` 内，正常结束或捕获到失败时清理。
-安装禁用 pip 缓存，系统命令入口禁用 Python 字节码写入；不修改 shell 配置、工作目录或系统 Python 包。
-升级保留登记过的旧程序环境，卸载时一并移除。
+安装锁和临时下载也在该目录内；下载在正常结束或捕获到失败时清理。
+安装禁用 pip 缓存，命令入口禁用 Python 字节码写入。
 `status` 与卸载预览不创建目录、状态文件或锁文件。
 
-Certbot 自身会更新 `/etc/letsencrypt`、工作目录和 `/var/log/letsencrypt`，
-systemd / nginx 也会产生正常系统日志；这些属于证书管理和系统服务的预期写入，卸载不会删除。
+**自动续签仍需要一处外部关联**：Certbot 在 `/etc/letsencrypt/renewal/<证书名>.conf`
+保存 auth / cleanup 和可选 deploy hooks。系统 timer 执行 Certbot 时会读取它。
+直接删除工具目录不会执行恢复操作，因此会留下指向不存在程序的 hooks。
+已执行 setup 的安装必须先用下面的卸载命令解除关联；只安装、没有接入 Certbot 的目录可以直接删除。
+运行挑战期间不要直接删除目录，否则可能失去临时 DNS 记录的清理状态。
+
+Certbot 自身会更新证书、续期配置、工作目录和 `/var/log/letsencrypt`，
+systemd / nginx 也会产生正常系统日志。这些属于预期的证书管理和服务操作，卸载保留。
+删除工具不会撤销已签发的证书或停止 nginx。
 
 先预览卸载范围：
 
 ```sh
-sudo certbot-dnspod-hook uninstall --detach --dry-run
+sudo /root/.certbot-dnspod-hook/bin/certbot-dnspod-hook uninstall --detach --dry-run
 ```
 
 仅在确实准备停止使用这个工具时执行：
 
 ```sh
-sudo certbot-dnspod-hook uninstall --detach
+sudo /root/.certbot-dnspod-hook/bin/certbot-dnspod-hook uninstall --detach
 ```
 
 `--detach` 仅恢复本工具改变的续期选项，保留新签发的证书、私钥及 Certbot 的其他配置。
@@ -146,8 +159,19 @@ sudo certbot-dnspod-hook uninstall --detach
 卸载会核对受管配置的内容哈希以及 hooks 是否仍符合接入时记录；
 有手动改动、未跟踪的引用、活动进程、待清理挑战或未知状态文件时会停止。
 完整卸载移除登记过的程序环境、命令链接、凭证、备份和空状态目录。
-配置目录里额外放入的用户文件会保留，不递归清空未知目录。
+安装目录里额外放入的用户文件会保留，不递归清空未知目录；因此存在这些文件时根目录会保留。
 卸载用兼容 Certbot 的临时锁排除并发续期，结束后移除该临时锁。
+
+### 从 0.3.x 的分散布局迁移
+
+先用旧版命令解除旧关联并卸载，再安装新版并重新 setup：
+
+```sh
+sudo /usr/local/bin/certbot-dnspod-hook uninstall --detach
+```
+
+旧版已签发的证书保留。新安装器不会覆盖旧版的目录布局，setup 也会拒绝尚未解除的旧 hooks。
+在新版 setup 完成前，原本依赖本工具的证书暂时没有 DNS 自动验证能力。
 
 ## 范围与工作机制
 
@@ -172,14 +196,14 @@ sudo certbot-dnspod-hook uninstall --detach
 secret_id = "YOUR_SECRET_ID"
 secret_key = "YOUR_SECRET_KEY"
 zones = ["example.com"]
-state_dir = "/var/lib/certbot-dnspod-hook/example.com"
+state_dir = "/root/.certbot-dnspod-hook/state/example.com"
 propagation_seconds = 120
 propagation_timeout = 600
 ttl = 600
 ```
 
 完整选项见 [示例配置](examples/config.example.toml)。配置和状态要求由执行用户所有，
-权限分别为 600 和 700。全局默认配置路径仍为 `/etc/certbot-dnspod-hook/config.toml`。
+权限分别为 600 和 700。全局默认配置路径仍为 `/root/.certbot-dnspod-hook/config/config.toml`。
 环境变量 `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY`、`TENCENTCLOUD_TOKEN`
 优先于 TOML；普通 auth/cleanup 不自动读取 `.env`，`setup --credentials-file` 负责导入。
 
@@ -188,8 +212,8 @@ ttl = 600
 ```sh
 sudo certbot certonly --dry-run --non-interactive --agree-tos --email admin@example.com \
   --manual --preferred-challenges dns \
-  --manual-auth-hook '/usr/local/bin/certbot-dnspod-hook --config /etc/certbot-dnspod-hook/config.toml auth' \
-  --manual-cleanup-hook '/usr/local/bin/certbot-dnspod-hook --config /etc/certbot-dnspod-hook/config.toml cleanup' \
+  --manual-auth-hook '/root/.certbot-dnspod-hook/bin/certbot-dnspod-hook --config /root/.certbot-dnspod-hook/config/config.toml auth' \
+  --manual-cleanup-hook '/root/.certbot-dnspod-hook/bin/certbot-dnspod-hook --config /root/.certbot-dnspod-hook/config/config.toml cleanup' \
   -d example.com -d '*.example.com'
 ```
 
@@ -203,18 +227,18 @@ uv run --frozen ruff check .
 uv run --frozen ruff format --check .
 uv run --frozen pytest -q
 uv run --frozen python scripts/build_release.py --repository Miniast/certbot-dnspod-hook
-DNSPOD_TEST_RELEASE="$PWD/dist/release/0.3.0" uv run --frozen pytest -q tests/test_installer.py
+DNSPOD_TEST_RELEASE="$PWD/dist/release/0.4.0" uv run --frozen pytest -q tests/test_installer.py
 ```
 
 构建器从 `uv.lock` 选择运行时依赖和 pip 的通用 wheel，下载后校验锁定的哈希，
 再打包应用 wheel、依赖、带哈希的 requirements 和许可证。
-产物位于 `dist/release/0.3.0`：`install.sh`、`*-bundle.tar.gz`、`SHA256SUMS`、
+产物位于 `dist/release/0.4.0`：`install.sh`、`*-bundle.tar.gz`、`SHA256SUMS`、
 `requirements.txt`、`release.json`。安装器内固定 bundle 哈希，校验文件也列出安装器自身的哈希。
 这些校验用于检测内容不符；安装器本身仍需从你信任的发布来源取得。
 
 不传 `--repository` 时生成仅供本地测试的发布包，安装器需给 `--base-url` 或 `--bundle`。
 测试 HTTP 仅允许 localhost / 回环地址；其他下载地址要求 HTTPS。
-安装器的 `--prefix`、`--bin-dir` 可用于临时目录中的独立安装验证。
+安装器的 `--prefix` 可用于临时目录中的独立安装验证；不支持目录外的命令链接。
 
 发布到私有仓库时，将上述产物附加到对应版本的 GitHub Release，并标记 prerelease。
 不要把 `.env`、凭证、状态、证书或本地验证日志提交到 Git。

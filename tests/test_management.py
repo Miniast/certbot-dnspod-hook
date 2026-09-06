@@ -20,19 +20,20 @@ def snapshot(root):
 
 @pytest.fixture
 def installation(tmp_path):
-    directory, state_root, prefix = [tmp_path / name for name in ("config", "state", "program")]
+    prefix = tmp_path / "program"
+    directory, state_root = prefix / "config", prefix / "state"
     renewal_root = tmp_path / "letsencrypt/renewal"
-    bin_dir = tmp_path / "bin"
+    bin_dir = prefix / "bin"
     for path in (directory, state_root, prefix, renewal_root, bin_dir):
-        path.mkdir(parents=True)
+        path.mkdir(parents=True, exist_ok=True)
     launcher = bin_dir / "certbot-dnspod-hook"
-    slot = prefix / "versions" / ("0.3.0-" + "a" * 12)
+    slot = prefix / "versions" / ("0.4.0-" + "a" * 12)
     slot.mkdir(parents=True)
     (slot / "owned-runtime").write_text("application and dependencies")
     (prefix / "current").symlink_to(slot)
     launcher.symlink_to(prefix / "current/bin/certbot-dnspod-hook")
     (prefix / "install.json").write_text(
-        json.dumps({"version": 1, "launcher": str(launcher), "versions": [slot.name]})
+        json.dumps({"version": 2, "launcher": str(launcher), "versions": [slot.name]})
     )
     (prefix / ".install.lock").touch()
     (directory / ".setup.lock").touch()

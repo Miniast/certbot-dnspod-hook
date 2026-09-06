@@ -36,4 +36,4 @@ jobs:
           python-version: "3.12"
       - run: uv sync --frozen
       - run: uv run --frozen python scripts/build_release.py
-      - run: DNSPOD_TEST_RELEASE="$PWD/dist/release/0.3.0" uv run --frozen pytest -q tests/test_installer.py
+      - run: DNSPOD_TEST_RELEASE="$PWD/dist/release/0.4.0" uv run --frozen pytest -q tests/test_installer.py

@@ -91,8 +91,12 @@ def system(tmp_path, monkeypatch):
             return "certbot 5.8.0"
         if "x509" in command:
             return "DNS:example.com, DNS:*.example.com"
-        if "show" in command:
+        if "--property=LoadState" in command:
             return "loaded\n"
+        if "--property=UnitFileState" in command:
+            return "enabled\n"
+        if "--property=ActiveState" in command:
+            return "active\n"
         if "reconfigure" in command:
             auth = command[command.index("--manual-auth-hook") + 1]
             cleanup = command[command.index("--manual-cleanup-hook") + 1]
@@ -117,7 +121,7 @@ def test_setup_stages_before_renewal_and_never_passes_keys(system, monkeypatch, 
     renew = next(command for command in calls if "renew" in command)
     assert calls.index(reconfigure) < calls.index(renew)
     assert "--force-renewal" in renew
-    assert any("enable" in command and "snap.certbot.renew.timer" in command for command in calls)
+    assert not any("enable" in command or "start" in command for command in calls)
     output = capsys.readouterr().out
     assert "private-id" not in output and "private-key" not in output
     assert "private-key" not in repr(calls)
@@ -203,3 +207,30 @@ def test_existing_deploy_hook_is_preserved_in_both_certbot_formats(system, field
     assert "/usr/local/bin/existing-deploy" in renewal.read_text()
     assert not module.CONFIG_DIR.exists()
     assert not any("reconfigure" in command or "renew" in command for command in calls)
+
+
+@pytest.mark.parametrize("timer_state", ["disabled", "inactive"])
+def test_setup_does_not_change_disabled_timer(system, monkeypatch, timer_state):
+    calls, normal_run, renewal, original = system
+
+    def run(command, **kwargs):
+        if (timer_state == "disabled" and "--property=UnitFileState" in command) or (
+            timer_state == "inactive" and "--property=ActiveState" in command
+        ):
+            return timer_state + "\n"
+        return normal_run(command, **kwargs)
+
+    monkeypatch.setattr(module, "run", run)
+    with pytest.raises(HookError, match="already be enabled and active"):
+        module.setup(arguments("--secret-id", "id", "--secret-key", "key"))
+    assert renewal.read_text() == original
+    assert not module.CONFIG_DIR.exists()
+    assert not any("enable" in command or "reconfigure" in command for command in calls)
+
+
+def test_legacy_system_hook_requires_detachment_first(system):
+    _, _, renewal, original = system
+    renewal.write_text(original + "manual_auth_hook = /usr/local/bin/certbot-dnspod-hook auth\n")
+    with pytest.raises(HookError, match="Detach the 0.3.x"):
+        module.setup(arguments("--secret-id", "id", "--secret-key", "key"))
+    assert not module.CONFIG_DIR.exists()
