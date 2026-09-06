@@ -191,7 +191,7 @@ def setup(args) -> int:
         )
     deploy_path = CONFIG_DIR / "nginx-deploy.sh"
     if args.deploy_nginx:
-        previous = re.search(r"^deploy_hook\s*=\s*(.+)$", original, re.MULTILINE)
+        previous = re.search(r"^(?:deploy_hook|renew_hook)\s*=\s*(.+)$", original, re.MULTILINE)
         if previous and previous[1].strip() != str(deploy_path):
             raise HookError(
                 "Certificate already has a deploy hook; omit --deploy-nginx to preserve it"

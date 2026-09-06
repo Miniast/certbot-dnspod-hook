@@ -2,6 +2,7 @@
 
 import functools
 import http.server
+import json
 import os
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ import pytest
 )
 def test_install_from_http_and_failed_update_preserves_working_install(tmp_path):
     release = Path(os.environ["DNSPOD_TEST_RELEASE"])
+    version = json.loads((release / "release.json").read_text())["version"]
     served = tmp_path / "served"
     shutil.copytree(release, served)
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(served))
@@ -41,7 +43,7 @@ def test_install_from_http_and_failed_update_preserves_working_install(tmp_path)
         installed = subprocess.run(command, capture_output=True, text=True, env=env, timeout=60)
         assert installed.returncode == 0, installed.stdout + installed.stderr
         launcher = bin_dir / "certbot-dnspod-hook"
-        assert subprocess.check_output([str(launcher), "--version"], text=True).strip() == "0.2.0"
+        assert subprocess.check_output([str(launcher), "--version"], text=True).strip() == version
         assert "setup" in subprocess.check_output([str(launcher), "--help"], text=True)
         before = (prefix / "current").readlink()
         bundle = next(served.glob("*-bundle.tar.gz"))
@@ -50,7 +52,7 @@ def test_install_from_http_and_failed_update_preserves_working_install(tmp_path)
         assert failed.returncode != 0
         assert "checksum mismatch" in failed.stderr
         assert (prefix / "current").readlink() == before
-        assert subprocess.check_output([str(launcher), "--version"], text=True).strip() == "0.2.0"
+        assert subprocess.check_output([str(launcher), "--version"], text=True).strip() == version
     finally:
         server.shutdown()
         server.server_close()

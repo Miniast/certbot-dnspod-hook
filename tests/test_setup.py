@@ -192,3 +192,14 @@ def test_failed_production_renewal_keeps_successfully_saved_hooks(system, monkey
         module.setup(arguments("--secret-id", "id", "--secret-key", "key", "--renew-now"))
     assert "manual_auth_hook" in renewal.read_text()
     assert len(list(module.CONFIG_DIR.glob("*.toml"))) == 1
+
+
+@pytest.mark.parametrize("field", ["renew_hook", "deploy_hook"])
+def test_existing_deploy_hook_is_preserved_in_both_certbot_formats(system, field):
+    calls, _, renewal, original = system
+    renewal.write_text(original + f"{field} = /usr/local/bin/existing-deploy\n")
+    with pytest.raises(HookError, match="already has a deploy hook"):
+        module.setup(arguments("--secret-id", "id", "--secret-key", "key", "--deploy-nginx"))
+    assert "/usr/local/bin/existing-deploy" in renewal.read_text()
+    assert not module.CONFIG_DIR.exists()
+    assert not any("reconfigure" in command or "renew" in command for command in calls)
